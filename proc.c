@@ -12,10 +12,24 @@ struct {
   struct proc proc[NPROC];
 } ptable;
 
+// Struct containing the process number, his priority and the next process.
+struct {
+  int step;
+  struct proc *process;
+  int next_proc;
+  int prev_proc;
+} proc_list;
+
+// made a process list, kinda a chained list.
+struct proc_list process_list[NPROC];
+
+// less priority process;
+int lpp = NULL;
+
 static struct proc *initproc;
 
+struct proc_list[NPROC];
 int nextpid = 1;
-int seed = 1;
 extern void forkret(void);
 extern void trapret(void);
 
@@ -36,14 +50,14 @@ static struct proc*
 allocproc(void)
 {
   struct proc *p;
+  int pl;
   char *sp;
 
   acquire(&ptable.lock);
 
-  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+  for(p = ptable.proc, i = 0; p < &ptable.proc[NPROC]; p++, i++)
     if(p->state == UNUSED)
       goto found;
-
   release(&ptable.lock);
   return 0;
 
@@ -51,6 +65,30 @@ found:
   p->state = EMBRYO;
   p->pid = nextpid++;
   p->tickets = DEFAULT_T;
+  p->stride = CONSTANT / p->tickets;
+  proc_list[i]->process = p;
+  proc_list[i]->step = 0;
+
+  if(lpp == NULL){
+    lpp = i;
+    proc_list[i]->next_proc = NULL;
+    proc_list[i]->prev_proc = NULL;
+  }
+
+  // need look into this again, not sure if it works.
+  else if(proc_list[lpp]->step == proc_list[i]->step){
+    for(pl = lpp; proc_list[pl]->next_proc != NULL || proc_list[pl]->priority == proc_list[i]->priority; pl = proc_list[pl]->next_proc){
+      if(proc_list[pl]->next_proc == NULL){
+        proc_list[pl]->next_proc = i;
+        proc_list[i]->prev_proc = pl;
+      }
+      else{
+        proc_list[i]->prev_proc = proc_list[pl]->prev_proc;
+        proc_list[i]->next_proc = pl;
+        proc_list[pl]->prev_proc = i;
+      }
+    }
+  }
 
   release(&ptable.lock);
 
@@ -135,24 +173,6 @@ growproc(int n)
   return 0;
 }
 
-
-// got from wikipedia... it says that the algorithm wors, thoug. LGC GCC algorith
-int roulette(){
-   seed = (seed * 1103515245) + 12345;
-   if(seed < 0) seed = seed * (-1);
-   //cprintf("%d\n", seed);
-   return seed;
-}
-
-int findtickets(){
-   struct proc *p;
-   int tickets = 0;
-   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      if(p->state == RUNNABLE) tickets += p->tickets;// cprintf("%d", p->tickets);
-   }
-   return tickets;
-}
-
 // Create a new process copying p as the parent.
 // Sets up stack to return as if from system call.
 // Caller must set state of returned proc to RUNNABLE.
@@ -199,6 +219,8 @@ fork(int tickets)
   else{
      np->tickets = tickets;
   }
+
+  np->stride = CONSTANT / np->tickets;
   release(&ptable.lock);
 
   return pid;
